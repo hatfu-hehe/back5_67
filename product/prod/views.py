@@ -10,7 +10,11 @@ from .serializers import (
     CategoryValidateSerializer, ProductValidateSerializer, ReviewValidateSerializer,
 )
 from rest_framework.pagination import PageNumberPagination
+from common.permissions import CanEdit, IsAnonymous, IsOwner, IsModerator
+from common.validators import validate_age
+from django.core.cache import cache
 
+# from users.tasks import add
 
 class CustomPagination(PageNumberPagination):
     def get_paginated_response(self, data):
@@ -59,6 +63,7 @@ class ProductViewSet(ModelViewSet):
     serializer_class = ProductDetailsSerializer
     pagination_class = CustomPagination
     lookup_field = 'id'
+    permission_classes = [IsOwner | IsAnonymous | IsModerator]
 
     def get_serializer_class(self):
         if self.action == 'list':
@@ -66,6 +71,8 @@ class ProductViewSet(ModelViewSet):
         return self.serializer_class
 
     def create(self, request, *args, **kwargs):
+        validate_age(request)
+        
         serializer = ProductValidateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(status=status.HTTP_400_BAD_REQUEST, data=serializer.errors)
@@ -79,10 +86,25 @@ class ProductViewSet(ModelViewSet):
             title=title,
             price=price,
             description=description,
-            category_id=category_id
+            category_id=category_id,
+            owner=request.user,
         )
         return Response(data=ProductDetailsSerializer(prod).data,
-                         status=status.HTTP_201_CREATED)
+                        status=status.HTTP_201_CREATED)
+        
+    def get(self, request, *args, **kwargs):
+        # from time import sleep
+        # sleep(15)
+        add.delay(6, 7)
+        cached_data = cache.get("product_list")
+        if cached_data:
+            print('Redis' * 20)
+            return Response(data=cached_data, status=status.HTTP_200_OK)
+        response = super().get(self, request, *args, **kwargs)
+        print("postgres" * 20)
+        if response.data.get("total", 0) > 0:
+            cache.set("product_list", response.data, timeout=30)
+        return response
 
     def update(self, request, *args, **kwargs):
         prod = self.get_object()
@@ -96,7 +118,7 @@ class ProductViewSet(ModelViewSet):
         prod.category_id = serializer.validated_data.get('category_id')
         prod.save()
         return Response(status=status.HTTP_201_CREATED,
-                         data=ProductDetailsSerializer(prod).data)
+                        data=ProductDetailsSerializer(prod).data)
 
 
 class ReviewViewSet(ModelViewSet):

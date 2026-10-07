@@ -1,20 +1,93 @@
-version: '3'
-services:
-  shop_api:
+# version: '3'
+# services:
+#   shop_api:
+#     build:
+#       context: .
+#     command: sh -c "python manage.py runserver 0.0.0.0:8000"
+#     ports:
+#       - '8002:8000'
+      
+#   shop_api_db:
+#     image: 'postgres:14'
+#     environment:
+#       - NAME_DB=product_data
+#       - USER_DB=product_date_user
+#       - PASSWORD_DB=password1234
+#     volumes:
+#       - 'data:/var/lib/postgresql/data'
+
+# volumes:
+#   data:
+
+version: "3"
+services: 
+  web:
     build:
       context: .
-    command: sh -c "python manage.py runserver 0.0.0.0:8000"
+    command: sh -c "python manage.py makemigrations && python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
     ports:
-      - '8002:8000'
-      
-  shop_api_db:
-    image: 'postgres:14'
-    environment:
-      - NAME_DB=product_data
-      - USER_DB=product_date_user
-      - PASSWORD_DB=password1234
+      - "8000:8000"
+    env_file:
+      .env
     volumes:
-      - 'data:/var/lib/postgresql/data'
+      - .:/app
+    depends_on:
+      - db
+      - redis
+    
+  db:
+    image: postgres:14
+    environment:
+      - POSTGRES_DB=${NAME_DB}
+      - POSTGRES_USER=${USER_DB}
+      - POSTGRES_PASSWORD=${PASSWORD_DB}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    volumes:
+      - redis-data:/data
+
+  celery_worker:
+    build:
+      context: .
+    command: celery -A shop_api worker --loglevel=info
+    ports:
+      - "8000:8000"
+    env_file:
+      .env
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+
+  celery_beat:
+    build:
+      context: .
+    command: celery -A shop_api beat --loglevel=info
+    ports:
+      - "8000:8000"
+    env_file:
+      .env
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+
+  celery_flower:
+    build:
+      context: .
+    command: celery -A shop_api flower --port=5555
+    ports:
+      - "5555:5555"
+    env_file:
+      .env
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
 
 volumes:
-  data:
+  db-data:
+  redis-data:
